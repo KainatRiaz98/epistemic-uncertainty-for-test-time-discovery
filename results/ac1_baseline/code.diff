@@ -1,0 +1,20 @@
+### repo: /home/ubuntu/Uncertainty-Guided-Exploration-For-Discovery @ d9738e8f49cf332911b13978f090709f5244dd11
+modules: tinker_cookbook
+-- repo-wide (vs HEAD, staged+unstaged) --
+diff --git a/run_ac1_baseline.sh b/run_ac1_baseline.sh
+index 22ab5bd..7b83520 100755
+--- a/run_ac1_baseline.sh
++++ b/run_ac1_baseline.sh
+@@ -27,10 +27,10 @@ PYTHONPATH=mLoRA:$PYTHONPATH discovery/bin/python3 -m tinker_cookbook.rl.mlora_t
+     --eval_timeout 1100 \
+     --dataset_timeout 1200 \
+     --sampler_type puct_backprop \
+-    --initial_exp_type random \
++    --initial_exp_type random_no_code \
+     --two_phase_sampling \
+     --phase1_max_tokens 26000 \
+     --wandb_project "ttt-discover-uncertainty" \
+     --wandb_name "ac1-baseline" \
+     --log_path ./logs/ac1_baseline \
+-    --save_every 5
++    --save_every 1

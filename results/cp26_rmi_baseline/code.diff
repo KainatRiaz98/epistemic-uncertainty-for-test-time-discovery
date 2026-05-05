@@ -1,0 +1,211 @@
+### repo: /home/ubuntu/Uncertainty-Guided-Exploration-For-Discovery @ b7f8079be4e2d8e0c2061c06c25a4310c8e9e4cd
+modules: tinker_cookbook
+-- repo-wide (vs HEAD, staged+unstaged) --
+diff --git a/mLoRA/mlora/model/modules/attention.py b/mLoRA/mlora/model/modules/attention.py
+index 9aa70a9..71f92d6 100644
+--- a/mLoRA/mlora/model/modules/attention.py
++++ b/mLoRA/mlora/model/modules/attention.py
+@@ -59,10 +59,14 @@ def scaled_dot_product_attention(
+     attention_mask: Optional[torch.Tensor] = None,
+ ) -> torch.Tensor:
+     if attention_mask is None:
+-        # Flash Attention with hardware-level causal masking — O(n) memory
+-        output = F.scaled_dot_product_attention(
+-            query, key, value, is_causal=True
+-        )
++        # PyTorch ≥2.0 uses upper-left causal masking for is_causal=True.
++        # With T_q=1 (KV-cached decode) and T_k>1, upper-left masking restricts
++        # the single query to K[0] only — completely wrong for decode.
++        # Fix: use is_causal=True only for square attention (full-sequence prefill/
++        # training where T_q == T_k). For decode (T_q=1, T_k>1), the KV cache
++        # already contains only valid past context, so no mask is needed.
++        is_causal = query.shape[2] == key.shape[2]
++        output = F.scaled_dot_product_attention(query, key, value, is_causal=is_causal)
+     else:
+         # Legacy path: explicit additive mask (for padded or non-causal sequences)
+         output = F.scaled_dot_product_attention(
+diff --git a/run_cp26.sh b/run_cp26.sh
+index 5485dc1..435a0d4 100755
+--- a/run_cp26.sh
++++ b/run_cp26.sh
+@@ -13,15 +13,15 @@ PYTHONPATH=mLoRA:$PYTHONPATH discovery/bin/python3 -m tinker_cookbook.rl.mlora_t
+     --num_ensemble_members 5 \
+     --adv_estimator entropic_adaptive_beta \
+     --rmi_coef 0.1 \
+-    --uncertainty_metric rmi \
++    --uncertainty_metric true_mi \
+     --kl_penalty_coef 0.01 \
+-    --lora_rank 4 \
+-    --lora_alpha 8 \
++    --lora_rank 16 \
++    --lora_alpha 32 \
+     --learning_rate 4e-5 \
+     --group_size 8 \
+-    --groups_per_batch 1 \
++    --groups_per_batch 8 \
+     --num_epochs 10 \
+-    --max_tokens 26000 \
++    --max_tokens 260000 \
+     --temperature 1.0 \
+     --sampler_type puct_backprop \
+     --initial_exp_type random \
+@@ -30,8 +30,7 @@ PYTHONPATH=mLoRA:$PYTHONPATH discovery/bin/python3 -m tinker_cookbook.rl.mlora_t
+     --streaming_mi \
+     --streaming_mi_wrap_budget 6000 \
+     --streaming_mi_warmup_epochs 3 \
+-    --kv_quantize \
+     --wandb_project "ttt-discover-uncertainty" \
+-    --wandb_name "7-april-mi" \
++    --wandb_name "cp26-real-run-truemi-r16" \
+     --log_path ./logs/cp26_rmi \
+     --save_every 5
+diff --git a/tinker_cookbook/rl/ensemble.py b/tinker_cookbook/rl/ensemble.py
+index a9d7077..b791c5e 100644
+--- a/tinker_cookbook/rl/ensemble.py
++++ b/tinker_cookbook/rl/ensemble.py
+@@ -274,6 +274,46 @@ class LoRAEnsemble:
+ 
+         return hidden, per_token_logprobs
+ 
++    def compute_training_logprobs_single(
++        self,
++        k: int,
++        token_ids: List[int],
++        chunk_size: int = 256,
++    ) -> Tuple[torch.Tensor, torch.Tensor]:
++        """
++        Forward pass with gradients for a SINGLE adapter k.
++
++        Memory cost is 1/K of compute_training_logprobs — only one adapter's
++        computation graph is live at a time. Call backward() before the next
++        adapter to keep peak memory at O(T × L × D) instead of O(K × T × L × D).
++
++        Returns:
++            hidden: (1, T, dim) hidden states with grad attached
++            per_token_logprobs: (T-1,) log-probs for adapter k
++        """
++        T = len(token_ids)
++        data_config = MLoRADataConfig(
++            adapter_name=f"ensemble_{k}",
++            adapter_type="lora",
++            start_idx=0,
++            end_idx=1,
++            expand_fn=self._expand_fn,
++            loss_fn=self._noop_loss,
++            task_name=f"train_single_{k}",
++        )
++        mlora_data = MLoRAData(
++            batch_tokens=[list(token_ids)],
++            batch_mask=[[True] * T],
++            data_config=[data_config],
++        )
++        mlora_data.use_flash_causal_ = True
++        mlora_data.return_hidden_states_ = True
++
++        hidden = self.model.forward(mlora_data.model_data())  # (1, T, D)
++        per_token_logprobs = self._chunked_logprobs(hidden, token_ids, chunk_size)  # (1, T-1)
++
++        return hidden, per_token_logprobs[0]  # (T-1,)
++
+     # ── Text generation ───────────────────────────────────────────────────
+ 
+     def _get_n_layers(self) -> int:
+diff --git a/tinker_cookbook/rl/mlora_train.py b/tinker_cookbook/rl/mlora_train.py
+index 8485142..f6c052b 100644
+--- a/tinker_cookbook/rl/mlora_train.py
++++ b/tinker_cookbook/rl/mlora_train.py
+@@ -161,7 +161,7 @@ class Config:
+     streaming_mi_threshold_percentile: float = 25.0  # Percentile of post-gen MI
+ 
+     # ── Performance ──────────────────────────────────────────────────────
+-    kv_quantize: bool = True  # int8 KV cache: halves bandwidth, ~2× faster batched decode
++    kv_quantize: bool = False  # int8 KV cache: halves bandwidth, ~2× faster batched decode
+ 
+     # ── Sampler ───────────────────────────────────────────────────────────
+     sampler_type: str = "puct_backprop"
+@@ -919,7 +919,7 @@ def do_group_rollout_batched(
+     max_tokens: int,
+     temperature: float,
+     reward_workers: concurrent.futures.ThreadPoolExecutor,
+-    kv_quantize: bool = True,
++    kv_quantize: bool = False,
+     two_phase_sampling: bool = False,
+     phase1_max_tokens: int = 26000,
+     context_window: int = 32768,
+@@ -1313,44 +1313,46 @@ def train_step(
+         n_batch = max(len(substep_batch), 1)
+ 
+         for rollout, adv in substep_batch:
+-            # Forward through all K adapters WITH gradients
+-            _hidden, current_logprobs = ensemble.compute_training_logprobs(
+-                rollout.full_tokens
+-            )  # current_logprobs: (K, T-1)
+-            # _hidden: (K, T, D) — not needed after logprobs are extracted.
+-            # Delete the Python reference now; the tensor stays alive in GPU memory
+-            # through current_logprobs's grad_fn until backward() frees the graph.
+-            del _hidden
+-
+             action_mask = rollout.action_mask.to(cfg.device)
+             old_logprobs = torch.tensor(
+                 rollout.sampling_logprobs, device=cfg.device
+             )
+ 
+-            # RL loss per adapter, averaged over K
+-            rollout_loss = torch.tensor(0.0, device=cfg.device)
++            # Sequential per-adapter forward+backward: peak activation memory is
++            # O(T × L × D) instead of O(K × T × L × D) from the joint K-adapter pass.
++            # Each adapter's computation graph is freed by backward() before the next
++            # forward, keeping only 1/K of the joint approach's activation memory.
++            rollout_loss_val = 0.0
++            first_adapter_logprobs = None
++
+             for k in range(ensemble.K):
++                _hidden_k, logprobs_k = ensemble.compute_training_logprobs_single(
++                    k, rollout.full_tokens
++                )  # logprobs_k: (T-1,)
++                del _hidden_k
++
++                if k == 0:
++                    first_adapter_logprobs = logprobs_k.detach()
++
+                 loss_k = compute_rl_loss(
+-                    current_logprobs=current_logprobs[k],
++                    current_logprobs=logprobs_k,
+                     old_logprobs=old_logprobs,
+                     advantage=adv,
+                     action_mask=action_mask,
+                     loss_fn=cfg.loss_fn,
+                     ppo_clip=cfg.ppo_clip,
+                 )
+-                rollout_loss = rollout_loss + loss_k / ensemble.K
++                # Divide by K (adapters) and n_batch (rollouts) so gradient magnitude
++                # matches the original joint backward.
++                scaled_k = loss_k / (ensemble.K * n_batch)
++                scaled_k.backward()  # frees this adapter's computation graph
++                rollout_loss_val += scaled_k.item()
++                del logprobs_k, loss_k, scaled_k
+ 
+             # Store first adapter's training logprobs for KL tracking
+-            all_training_logprobs.append(current_logprobs[0].detach())
++            all_training_logprobs.append(first_adapter_logprobs)
+             all_trained_rollouts.append(rollout)
+-            # Drop the computation graph reference before the next rollout's forward.
+-            # Per-rollout backward is mathematically identical to one big backward:
+-            #   step_all_optimizers() calls optimizer.step() then zero_grad(),
+-            #   so gradients accumulate in .grad across calls here, then step() uses the sum.
+-            del current_logprobs
+-            scaled = rollout_loss / n_batch
+-            scaled.backward()
+-            total_loss_val += scaled.item()
++            total_loss_val += rollout_loss_val
+ 
+         if len(substep_batch) > 0:
+             ensemble.step_all_optimizers()
+@@ -1895,7 +1897,7 @@ def cli_main():
+     parser.add_argument("--loss_fn", default="importance_sampling")
+ 
+     # Performance
+-    parser.add_argument("--kv_quantize", action="store_true", default=True,
++    parser.add_argument("--kv_quantize", action="store_true", default=False,
+                         help="Int8 KV cache: halves memory bandwidth for faster batched decode")
+     parser.add_argument("--no_kv_quantize", dest="kv_quantize", action="store_false")

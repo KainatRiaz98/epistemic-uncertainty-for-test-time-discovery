@@ -1,0 +1,32 @@
+{
+  "initial_states": [
+    {
+      "code": "",
+      "construction": null,
+      "id": "9b9f44ae-6b6d-4ac9-a935-e03033df9fc8",
+      "observation": "",
+      "parent_values": [],
+      "parents": [],
+      "timestep": -1,
+      "type": "CirclePackingState",
+      "value": 0.0
+    }
+  ],
+  "puct_T": 0,
+  "puct_m": {},
+  "puct_n": {},
+  "states": [
+    {
+      "code": "",
+      "construction": null,
+      "id": "9b9f44ae-6b6d-4ac9-a935-e03033df9fc8",
+      "observation": "",
+      "parent_values": [],
+      "parents": [],
+      "timestep": -1,
+      "type": "CirclePackingState",
+      "value": 0.0
+    }
+  ],
+  "step": 0
+}

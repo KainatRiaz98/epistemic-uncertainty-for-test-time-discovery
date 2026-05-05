@@ -1,0 +1,58 @@
+### repo: /home/ubuntu/Uncertainty-Guided-Exploration-For-Discovery @ b7f8079be4e2d8e0c2061c06c25a4310c8e9e4cd
+modules: tinker_cookbook
+-- repo-wide (vs HEAD, staged+unstaged) --
+diff --git a/run_cp26.sh b/run_cp26.sh
+index 5485dc1..4099b3c 100755
+--- a/run_cp26.sh
++++ b/run_cp26.sh
+@@ -21,17 +21,16 @@ PYTHONPATH=mLoRA:$PYTHONPATH discovery/bin/python3 -m tinker_cookbook.rl.mlora_t
+     --group_size 8 \
+     --groups_per_batch 1 \
+     --num_epochs 10 \
+-    --max_tokens 26000 \
++    --max_tokens 13000 \
+     --temperature 1.0 \
+     --sampler_type puct_backprop \
+     --initial_exp_type random \
+     --two_phase_sampling \
+-    --phase1_max_tokens 26000 \
++    --phase1_max_tokens 13000 \
+     --streaming_mi \
+     --streaming_mi_wrap_budget 6000 \
+     --streaming_mi_warmup_epochs 3 \
+-    --kv_quantize \
+     --wandb_project "ttt-discover-uncertainty" \
+-    --wandb_name "7-april-mi" \
++    --wandb_name "8-april-mi-fix" \
+     --log_path ./logs/cp26_rmi \
+     --save_every 5
+diff --git a/tinker_cookbook/rl/mlora_train.py b/tinker_cookbook/rl/mlora_train.py
+index 8485142..37dd790 100644
+--- a/tinker_cookbook/rl/mlora_train.py
++++ b/tinker_cookbook/rl/mlora_train.py
+@@ -161,7 +161,7 @@ class Config:
+     streaming_mi_threshold_percentile: float = 25.0  # Percentile of post-gen MI
+ 
+     # ── Performance ──────────────────────────────────────────────────────
+-    kv_quantize: bool = True  # int8 KV cache: halves bandwidth, ~2× faster batched decode
++    kv_quantize: bool = False  # int8 KV cache: halves bandwidth, ~2× faster batched decode
+ 
+     # ── Sampler ───────────────────────────────────────────────────────────
+     sampler_type: str = "puct_backprop"
+@@ -919,7 +919,7 @@ def do_group_rollout_batched(
+     max_tokens: int,
+     temperature: float,
+     reward_workers: concurrent.futures.ThreadPoolExecutor,
+-    kv_quantize: bool = True,
++    kv_quantize: bool = False,
+     two_phase_sampling: bool = False,
+     phase1_max_tokens: int = 26000,
+     context_window: int = 32768,
+@@ -1895,7 +1895,7 @@ def cli_main():
+     parser.add_argument("--loss_fn", default="importance_sampling")
+ 
+     # Performance
+-    parser.add_argument("--kv_quantize", action="store_true", default=True,
++    parser.add_argument("--kv_quantize", action="store_true", default=False,
+                         help="Int8 KV cache: halves memory bandwidth for faster batched decode")
+     parser.add_argument("--no_kv_quantize", dest="kv_quantize", action="store_false")

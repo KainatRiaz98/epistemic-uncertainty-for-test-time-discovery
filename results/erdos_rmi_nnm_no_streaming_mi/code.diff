@@ -1,0 +1,22 @@
+### repo: /home/ubuntu/Uncertainty-Guided-Exploration-For-Discovery @ 04780d1231e7f3f67e918b11b3416b099fb0a1b5
+modules: tinker_cookbook
+-- repo-wide (vs HEAD, staged+unstaged) --
+diff --git a/run_erdos.sh b/run_erdos.sh
+index 81c4da8..5c73d9f 100755
+--- a/run_erdos.sh
++++ b/run_erdos.sh
+@@ -32,11 +32,7 @@ PYTHONPATH=mLoRA:$PYTHONPATH discovery/bin/python3 -m tinker_cookbook.rl.mlora_t
+     --initial_exp_type random \
+     --two_phase_sampling \
+     --phase1_max_tokens 26000 \
+-    --streaming_mi \
+-    --streaming_mi_wrap_budget 6000 \
+-    --streaming_mi_warmup_epochs 3 \
+-    --streaming_mi_threshold_percentile 5.0 \
+     --wandb_project "ttt-discover-uncertainty" \
+-    --wandb_name "erdos-real-run-truemi-r16-nnm" \
+-    --log_path ./logs/erdos_rmi_nnm \
+-    --save_every 5
++    --wandb_name "erdos-truemi-r16-nnm-no-streaming-mi" \
++    --log_path ./logs/erdos_rmi_nnm_no_streaming_mi \
++    --save_every 3

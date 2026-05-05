@@ -1,0 +1,20 @@
+### repo: /home/ubuntu/Uncertainty-Guided-Exploration-For-Discovery @ 52279e5fe03ccd70e03908437cde45f8a773c050
+modules: tinker_cookbook
+-- repo-wide (vs HEAD, staged+unstaged) --
+diff --git a/run_cp26.sh b/run_cp26.sh
+index af1d9c0..a2f5395 100755
+--- a/run_cp26.sh
++++ b/run_cp26.sh
+@@ -28,11 +28,7 @@ PYTHONPATH=mLoRA:$PYTHONPATH discovery/bin/python3 -m tinker_cookbook.rl.mlora_t
+     --initial_exp_type random \
+     --two_phase_sampling \
+     --phase1_max_tokens 26000 \
+-    --streaming_mi \
+-    --streaming_mi_wrap_budget 6000 \
+-    --streaming_mi_warmup_epochs 3 \
+-    --streaming_mi_threshold_percentile 5.0 \
+     --wandb_project "ttt-discover-uncertainty" \
+-    --wandb_name "cp26-real-run-truemi-r16-nnm" \
++    --wandb_name "cp26-truemi-r16-nnm-no-streaming" \
+     --log_path ./logs/cp26_rmi_nnm \
+     --save_every 5
